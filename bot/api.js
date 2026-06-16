@@ -1,10 +1,13 @@
 'use strict';
 
-const BOT_TOKEN = process.env.BOT_TOKEN || '8869327039:AAHhE0fGBxVky3ET1WZXxWqesV0FDHjZkrg';
-const BASE = `https://api.telegram.org/bot${BOT_TOKEN}`;
+function getBase() {
+  const token = process.env.BOT_TOKEN;
+  if (!token) throw new Error('BOT_TOKEN not set');
+  return `https://api.telegram.org/bot${token}`;
+}
 
 async function call(method, body) {
-  const res = await fetch(`${BASE}/${method}`, {
+  const res = await fetch(`${getBase()}/${method}`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
