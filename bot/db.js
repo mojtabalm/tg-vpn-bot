@@ -2,12 +2,12 @@
 const { DatabaseSync } = require('node:sqlite');
 const path = require('path');
 const fs = require('fs');
+const crypto = require('crypto');
 
 const dataDir = path.join(__dirname, 'data');
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
 const db = new DatabaseSync(path.join(dataDir, 'bot.db'));
-
 db.exec(`PRAGMA journal_mode = WAL`);
 db.exec(`PRAGMA foreign_keys = ON`);
 
@@ -17,52 +17,51 @@ db.exec(`
     telegram_id INTEGER UNIQUE NOT NULL,
     username TEXT,
     first_name TEXT,
+    link_token TEXT UNIQUE NOT NULL,
     coins INTEGER DEFAULT 0,
-    referrer_id INTEGER,
-    join_date TEXT DEFAULT (datetime('now')),
+    gender TEXT,
+    referred_by INTEGER,
+    referral_credited INTEGER DEFAULT 0,
+    state TEXT DEFAULT 'idle',
+    state_data TEXT,
     is_banned INTEGER DEFAULT 0,
-    captcha_done INTEGER DEFAULT 0
-  );
-
-  CREATE TABLE IF NOT EXISTS configs (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    link TEXT NOT NULL,
-    size TEXT DEFAULT '1 گیگ',
-    duration TEXT DEFAULT '24 ساعت',
-    cost_coins INTEGER DEFAULT 2,
-    is_active INTEGER DEFAULT 1,
-    used_count INTEGER DEFAULT 0,
     created_at TEXT DEFAULT (datetime('now'))
   );
 
-  CREATE TABLE IF NOT EXISTS referrals (
+  CREATE TABLE IF NOT EXISTS blocked_users (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    referrer_id INTEGER NOT NULL,
-    referred_id INTEGER NOT NULL,
+    blocker_telegram_id INTEGER NOT NULL,
+    blocked_token TEXT NOT NULL,
     created_at TEXT DEFAULT (datetime('now')),
-    UNIQUE(referred_id)
+    UNIQUE(blocker_telegram_id, blocked_token)
   );
 
-  CREATE TABLE IF NOT EXISTS transactions (
+  CREATE TABLE IF NOT EXISTS random_chats (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL,
-    amount INTEGER NOT NULL,
-    type TEXT NOT NULL,
-    description TEXT,
+    user1_telegram_id INTEGER NOT NULL,
+    user2_telegram_id INTEGER NOT NULL,
+    is_active INTEGER DEFAULT 1,
     created_at TEXT DEFAULT (datetime('now'))
   );
 
-  CREATE TABLE IF NOT EXISTS settings (
+  CREATE TABLE IF NOT EXISTS waiting_queue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    telegram_id INTEGER UNIQUE NOT NULL,
+    gender_pref TEXT DEFAULT 'any',
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS reports (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    reporter_telegram_id INTEGER NOT NULL,
+    reported_token TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    created_at TEXT DEFAULT (datetime('now'))
+  );
+
+  CREATE TABLE IF NOT EXISTS bot_settings (
     key TEXT PRIMARY KEY,
     value TEXT NOT NULL
-  );
-
-  CREATE TABLE IF NOT EXISTS captcha_pending (
-    user_id INTEGER PRIMARY KEY,
-    answer INTEGER NOT NULL,
-    referrer_id INTEGER,
-    expires_at INTEGER NOT NULL
   );
 
   CREATE TABLE IF NOT EXISTS forced_channels (
@@ -73,177 +72,124 @@ db.exec(`
   );
 `);
 
-const defaultSettings = {
-  coins_per_referral: '1',
-  service_cost: '2',
-  maintenance_mode: '0',
-  welcome_text: '🔔 به ربات خوش آمدید!\n\nبا این ربات می‌تونی:\n✅ کانفیگ‌های پرسرعت دریافت کنی\n✅ با دعوت دوستان امتیاز جمع کنی\n✅ با امتیازها کانفیگ رایگان بگیری\n✅ همیشه از وضعیت سرویس‌ها با خبر باشی',
-  rules_text: '📋 قوانین و شرایط استفاده\n\n🔒 حریم خصوصی\n• اطلاعات شما کاملاً محرمانه است.\n\n🎁 سیستم دعوت (رفرال)\n• دریافت اشتراک رایگان از طریق دعوت دوستان\n• هرگونه تقلب (اکانت فیک، ربات) منجر به مسدودسازی دائمی می‌شود.\n\n🚫 قوانین استفاده\n• اشتراک دریافتی صرفاً برای استفاده شخصی است.\n• استفاده از سرویس برای فعالیت‌های مخرب ممنوع است.\n\n‼️ مسئولیت\n• تمامی مسئولیت نحوه استفاده از سرویس بر عهده کاربر است.',
-  guide_text: '❓ راهنمای دریافت اشتراک رایگان\n\n1️⃣ مرحله ۱: دریافت لینک اختصاصی\nوارد بخش «دعوت دوستان» شوید و لینک خود را بگیرید.\n\n2️⃣ مرحله ۲: دعوت از دوستان\nلینک را برای دوستان بفرستید. با عضویت هر کاربر، امتیاز دریافت کنید.\n\n3️⃣ مرحله ۳: دریافت اشتراک\nپس از رسیدن امتیاز به حد نصاب، از بخش «دریافت اشتراک» کانفیگ بگیرید.\n\n💡 سیستم آنتی‌تقلب فعال است. استفاده از اکانت فیک منجر به حذف امتیازات می‌شود.\n\n🔧 در صورت مشکل از «پشتیبانی» استفاده کنید.'
-};
-
-const insertSetting = db.prepare('INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)');
-for (const [key, value] of Object.entries(defaultSettings)) {
-  insertSetting.run(key, value);
-}
+const defaults = { referral_coins: '20', gender_chat_cost: '2' };
+const insSetting = db.prepare('INSERT OR IGNORE INTO bot_settings (key, value) VALUES (?, ?)');
+for (const [k, v] of Object.entries(defaults)) insSetting.run(k, v);
 
 const defaultChannels = [
-  { id: '@lnterFreedom', name: '🌐 InterFreedom', url: 'https://t.me/lnterFreedom' },
-  { id: '@lnterBots',    name: '🤖 InterBots',    url: 'https://t.me/lnterBots'    },
+  { id: '@lnterFreedom', name: '🌐 lnterFreedom', url: 'https://t.me/lnterFreedom' },
+  { id: '@lnterBots',    name: '🤖 lnterBots',    url: 'https://t.me/lnterBots'    },
 ];
 for (const ch of defaultChannels) {
-  const exists = db.prepare('SELECT id FROM forced_channels WHERE channel_id = ?').get(ch.id);
-  if (!exists) {
-    db.prepare('INSERT INTO forced_channels (channel_id, channel_name, channel_url) VALUES (?, ?, ?)').run(ch.id, ch.name, ch.url);
-  }
+  const ex = db.prepare('SELECT id FROM forced_channels WHERE channel_id = ?').get(ch.id);
+  if (!ex) db.prepare('INSERT INTO forced_channels (channel_id, channel_name, channel_url) VALUES (?, ?, ?)').run(ch.id, ch.name, ch.url);
 }
+
+function generateToken() { return crypto.randomBytes(8).toString('hex'); }
 
 function getSetting(key) {
-  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
-  return row ? row.value : null;
+  const r = db.prepare('SELECT value FROM bot_settings WHERE key = ?').get(key);
+  return r ? r.value : null;
 }
-
-function setSetting(key, value) {
-  db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, String(value));
+function setSetting(key, val) {
+  db.prepare('INSERT OR REPLACE INTO bot_settings (key, value) VALUES (?, ?)').run(key, String(val));
 }
 
 function getUser(telegramId) {
   return db.prepare('SELECT * FROM users WHERE telegram_id = ?').get(telegramId);
 }
-
-function createUser(telegramId, username, firstName, referrerId = null) {
-  return db.prepare('INSERT OR IGNORE INTO users (telegram_id, username, first_name, referrer_id) VALUES (?, ?, ?, ?)').run(telegramId, username, firstName, referrerId);
+function getUserByToken(token) {
+  return db.prepare('SELECT * FROM users WHERE link_token = ?').get(token);
 }
-
+function getOrCreateUser(telegramId, username, firstName) {
+  const ex = db.prepare('SELECT * FROM users WHERE telegram_id = ?').get(telegramId);
+  if (ex) return ex;
+  const token = generateToken();
+  db.prepare('INSERT INTO users (telegram_id, username, first_name, link_token) VALUES (?, ?, ?, ?)')
+    .run(telegramId, username || null, firstName || 'کاربر', token);
+  return db.prepare('SELECT * FROM users WHERE telegram_id = ?').get(telegramId);
+}
 function updateUser(telegramId, fields) {
   const keys = Object.keys(fields);
-  const values = Object.values(fields);
+  const vals = Object.values(fields);
   const set = keys.map(k => `${k} = ?`).join(', ');
-  db.prepare(`UPDATE users SET ${set} WHERE telegram_id = ?`).run(...values, telegramId);
+  db.prepare(`UPDATE users SET ${set} WHERE telegram_id = ?`).run(...vals, telegramId);
 }
-
-function addCoins(telegramId, amount, type, description) {
+function setState(telegramId, state, stateData = null) {
+  db.prepare('UPDATE users SET state = ?, state_data = ? WHERE telegram_id = ?').run(state, stateData, telegramId);
+}
+function addCoins(telegramId, amount) {
   db.prepare('UPDATE users SET coins = coins + ? WHERE telegram_id = ?').run(amount, telegramId);
-  db.prepare('INSERT INTO transactions (user_id, amount, type, description) VALUES (?, ?, ?, ?)').run(telegramId, amount, type, description);
 }
-
-function deductCoins(telegramId, amount, type, description) {
+function deductCoins(telegramId, amount) {
   db.prepare('UPDATE users SET coins = coins - ? WHERE telegram_id = ?').run(amount, telegramId);
-  db.prepare('INSERT INTO transactions (user_id, amount, type, description) VALUES (?, ?, ?, ?)').run(telegramId, -amount, type, description);
 }
-
-function getReferralCount(telegramId) {
-  const row = db.prepare('SELECT COUNT(*) as cnt FROM referrals WHERE referrer_id = ?').get(telegramId);
-  return row ? row.cnt : 0;
-}
-
-function addReferral(referrerId, referredId) {
-  try {
-    const result = db.prepare('INSERT OR IGNORE INTO referrals (referrer_id, referred_id) VALUES (?, ?)').run(referrerId, referredId);
-    return result.changes > 0;
-  } catch { return false; }
-}
-
-function getTopReferrers(limit = 10) {
-  return db.prepare(`SELECT u.telegram_id, u.username, u.first_name, COUNT(r.id) as ref_count 
-    FROM users u LEFT JOIN referrals r ON r.referrer_id = u.telegram_id 
-    GROUP BY u.telegram_id ORDER BY ref_count DESC LIMIT ?`).all(limit);
-}
-
-function getRichestUsers(limit = 10) {
-  return db.prepare('SELECT * FROM users ORDER BY coins DESC LIMIT ?').all(limit);
-}
-
 function getAllUsers() {
-  return db.prepare('SELECT * FROM users ORDER BY join_date DESC').all();
+  return db.prepare('SELECT * FROM users').all();
 }
-
-function getLatestUsers(limit = 10) {
-  return db.prepare('SELECT * FROM users ORDER BY join_date DESC LIMIT ?').all(limit);
-}
-
 function getTotalStats() {
-  const total = db.prepare('SELECT COUNT(*) as cnt FROM users').get().cnt;
-  const banned = db.prepare('SELECT COUNT(*) as cnt FROM users WHERE is_banned = 1').get().cnt;
-  const totalReferrals = db.prepare('SELECT COUNT(*) as cnt FROM referrals').get().cnt;
-  const totalConfigs = db.prepare('SELECT COUNT(*) as cnt FROM configs').get().cnt;
-  const activeConfigs = db.prepare('SELECT COUNT(*) as cnt FROM configs WHERE is_active = 1').get().cnt;
-  const totalCoinsGiven = db.prepare("SELECT COALESCE(SUM(amount),0) as total FROM transactions WHERE type = 'referral'").get().total;
-  const totalServiceUsed = db.prepare("SELECT COUNT(*) as cnt FROM transactions WHERE type = 'service'").get().cnt;
-  return { total, banned, totalReferrals, totalConfigs, activeConfigs, totalCoinsGiven, totalServiceUsed };
+  const total    = db.prepare('SELECT COUNT(*) as cnt FROM users').get().cnt;
+  const reports  = db.prepare('SELECT COUNT(*) as cnt FROM reports').get().cnt;
+  const chats    = db.prepare('SELECT COUNT(*) as cnt FROM random_chats').get().cnt;
+  const blocked  = db.prepare('SELECT COUNT(*) as cnt FROM blocked_users').get().cnt;
+  return { total, reports, chats, blocked };
 }
 
-function getMonthlyStats() {
-  const thisMonth = new Date();
-  thisMonth.setDate(1); thisMonth.setHours(0, 0, 0, 0);
-  const since = thisMonth.toISOString().split('T')[0];
-  const newUsers = db.prepare("SELECT COUNT(*) as cnt FROM users WHERE join_date >= ?").get(since).cnt;
-  const newReferrals = db.prepare("SELECT COUNT(*) as cnt FROM referrals WHERE created_at >= ?").get(since).cnt;
-  const services = db.prepare("SELECT COUNT(*) as cnt FROM transactions WHERE type = 'service' AND created_at >= ?").get(since).cnt;
-  return { newUsers, newReferrals, services };
+function isBlocked(blockerTelegramId, blockedToken) {
+  return !!db.prepare('SELECT id FROM blocked_users WHERE blocker_telegram_id = ? AND blocked_token = ?')
+    .get(blockerTelegramId, blockedToken);
+}
+function addBlock(blockerTelegramId, blockedToken) {
+  db.prepare('INSERT OR IGNORE INTO blocked_users (blocker_telegram_id, blocked_token) VALUES (?, ?)').run(blockerTelegramId, blockedToken);
+}
+
+function getActiveRandomChat(userId) {
+  const c1 = db.prepare('SELECT * FROM random_chats WHERE is_active = 1 AND user1_telegram_id = ?').get(userId);
+  if (c1) return c1;
+  return db.prepare('SELECT * FROM random_chats WHERE is_active = 1 AND user2_telegram_id = ?').get(userId) || null;
+}
+function createRandomChat(user1, user2) {
+  db.prepare('INSERT INTO random_chats (user1_telegram_id, user2_telegram_id) VALUES (?, ?)').run(user1, user2);
+}
+function endRandomChat(id) {
+  db.prepare('UPDATE random_chats SET is_active = 0 WHERE id = ?').run(id);
+}
+
+function getWaitingQueue(excludeUserId) {
+  return db.prepare('SELECT * FROM waiting_queue WHERE telegram_id != ? ORDER BY created_at ASC').all(excludeUserId);
+}
+function addToQueue(telegramId, genderPref) {
+  db.prepare('INSERT OR REPLACE INTO waiting_queue (telegram_id, gender_pref) VALUES (?, ?)').run(telegramId, genderPref || 'any');
+}
+function removeFromQueue(telegramId) {
+  db.prepare('DELETE FROM waiting_queue WHERE telegram_id = ?').run(telegramId);
+}
+
+function addReport(reporter, reportedToken, reason) {
+  db.prepare('INSERT INTO reports (reporter_telegram_id, reported_token, reason) VALUES (?, ?, ?)').run(reporter, reportedToken, reason);
 }
 
 function getForcedChannels() { return db.prepare('SELECT * FROM forced_channels').all(); }
-function addForcedChannel(channelId, channelName, channelUrl) {
-  db.prepare('INSERT INTO forced_channels (channel_id, channel_name, channel_url) VALUES (?, ?, ?)').run(channelId, channelName, channelUrl);
+function addForcedChannel(id, name, url) {
+  db.prepare('INSERT INTO forced_channels (channel_id, channel_name, channel_url) VALUES (?, ?, ?)').run(id, name, url);
 }
 function removeForcedChannel(id) { db.prepare('DELETE FROM forced_channels WHERE id = ?').run(id); }
 
-function getAvailableConfig() {
-  return db.prepare('SELECT * FROM configs WHERE is_active = 1 ORDER BY used_count ASC, ROWID ASC LIMIT 1').get();
-}
-function addConfig(name, link, size, duration, costCoins) {
-  db.prepare('INSERT INTO configs (name, link, size, duration, cost_coins) VALUES (?, ?, ?, ?, ?)').run(name, link, size, duration, costCoins);
-}
-function getAllConfigs() { return db.prepare('SELECT * FROM configs ORDER BY created_at DESC').all(); }
-function markConfigUsed(id) { db.prepare('UPDATE configs SET used_count = used_count + 1 WHERE id = ?').run(id); }
-function removeConfig(id) { db.prepare('DELETE FROM configs WHERE id = ?').run(id); }
-function toggleConfig(id) {
-  const cfg = db.prepare('SELECT is_active FROM configs WHERE id = ?').get(id);
-  if (cfg) db.prepare('UPDATE configs SET is_active = ? WHERE id = ?').run(cfg.is_active ? 0 : 1, id);
-}
-
 function searchUser(query) {
-  if (/^\d+$/.test(String(query))) {
+  if (/^\d+$/.test(String(query)))
     return db.prepare('SELECT * FROM users WHERE telegram_id = ?').get(parseInt(query));
-  }
-  return db.prepare("SELECT * FROM users WHERE username LIKE ? OR first_name LIKE ? LIMIT 1").get(`%${query}%`, `%${query}%`);
-}
-
-function setPendingCaptcha(userId, answer, referrerId) {
-  const expiresAt = Date.now() + 5 * 60 * 1000;
-  db.prepare('INSERT OR REPLACE INTO captcha_pending (user_id, answer, referrer_id, expires_at) VALUES (?, ?, ?, ?)').run(userId, answer, referrerId, expiresAt);
-}
-
-function getPendingCaptcha(userId) {
-  const row = db.prepare('SELECT * FROM captcha_pending WHERE user_id = ?').get(userId);
-  if (!row) return null;
-  if (Date.now() > row.expires_at) {
-    db.prepare('DELETE FROM captcha_pending WHERE user_id = ?').run(userId);
-    return null;
-  }
-  return row;
-}
-
-function clearPendingCaptcha(userId) {
-  db.prepare('DELETE FROM captcha_pending WHERE user_id = ?').run(userId);
-}
-
-function getMostServiceUsers(limit = 10) {
-  return db.prepare(`SELECT user_id, COUNT(*) as cnt FROM transactions WHERE type='service' GROUP BY user_id ORDER BY cnt DESC LIMIT ?`).all(limit);
+  return db.prepare("SELECT * FROM users WHERE username LIKE ? OR first_name LIKE ? LIMIT 1")
+    .get(`%${query}%`, `%${query}%`);
 }
 
 module.exports = {
-  db,
   getSetting, setSetting,
-  getUser, createUser, updateUser,
-  addCoins, deductCoins,
-  getReferralCount, addReferral,
-  getTopReferrers, getRichestUsers, getAllUsers, getLatestUsers,
-  getTotalStats, getMonthlyStats,
+  getUser, getUserByToken, getOrCreateUser, updateUser, setState,
+  addCoins, deductCoins, getAllUsers, getTotalStats,
+  isBlocked, addBlock,
+  getActiveRandomChat, createRandomChat, endRandomChat,
+  getWaitingQueue, addToQueue, removeFromQueue,
+  addReport,
   getForcedChannels, addForcedChannel, removeForcedChannel,
-  getAvailableConfig, addConfig, getAllConfigs, markConfigUsed, removeConfig, toggleConfig,
   searchUser,
-  setPendingCaptcha, getPendingCaptcha, clearPendingCaptcha,
-  getMostServiceUsers
 };
