@@ -1,6 +1,5 @@
 'use strict';
 
-// Premium emoji IDs assigned to buttons
 const E = {
   download:   '5206607081334906820',
   invite:     '5422439311196834318',
@@ -8,7 +7,6 @@ const E = {
   support:    '5255883984151276991',
   rules:      '5436113877181941026',
   guide:      '5924664865208671041',
-  // Admin panel emojis
   botStatus:  '5400250414929041085',
   stats:      '5472308992514464048',
   latestUsers:'5190806721286657692',
@@ -46,25 +44,22 @@ const E = {
   manageBtn:  '6032751234790726550',
 };
 
-// Helper to build a button with premium emoji
-function btn(text, emojiId, style = null) {
+function btn(text, emojiId, style = 'primary') {
   const b = { text };
   if (emojiId) b.icon_custom_emoji_id = emojiId;
   if (style) b.style = style;
   return b;
 }
 
-// Main menu keyboard
 function mainMenu() {
   return [
-    [btn('دریافت اشتراک', E.download, 'success')],
+    [btn('دریافت اشتراک', E.download, 'primary')],
     [btn('دعوت دوستان', E.invite, 'primary'), btn('پروفایل', E.profile, 'primary')],
     [btn('پشتیبانی', E.support, 'primary'), btn('قوانین', E.rules, 'primary')],
-    [btn('راهنما', E.guide, 'danger')]
+    [btn('راهنما', E.guide, 'primary')]
   ];
 }
 
-// Admin panel keyboard
 function adminMenu() {
   return [
     [btn('وضعیت ربات', E.botStatus, 'primary'), btn('آمار کامل', E.stats, 'primary')],
@@ -72,35 +67,34 @@ function adminMenu() {
     [btn('ثروتمندترین‌ها', E.richest, 'primary'), btn('بیشترین سرویس', E.mostService, 'primary')],
     [btn('پیام به کاربر', E.msgUser, 'primary'), btn('پیام همگانی', E.broadcast, 'primary')],
     [btn('اطلاعات کاربر', E.userInfo, 'primary'), btn('جستجوی کاربر', E.searchUser, 'primary')],
-    [btn('رفع مسدودی', E.unban, 'success'), btn('مسدود کردن', E.ban, 'danger')],
+    [btn('رفع مسدودی', E.unban, 'primary'), btn('مسدود کردن', E.ban, 'primary')],
     [btn('افزودن سکه', E.addCoins, 'primary'), btn('تنظیم سکه', E.setCoins, 'primary')],
     [btn('ری‌ست سکه', E.resetCoins, 'primary'), btn('سرویس دستی', E.manualSvc, 'primary')],
-    [btn('حذف کاربر', E.deleteUser, 'danger'), btn('متن خوش‌آمد', E.editWelcome, 'primary')],
+    [btn('حذف کاربر', E.deleteUser, 'primary'), btn('متن خوش‌آمد', E.editWelcome, 'primary')],
     [btn('تنظیمات سکه‌ها', E.coinConfig, 'primary'), btn('کانال‌های اجباری', E.channels, 'primary')],
     [btn('آمار ماهانه', E.monthStats, 'primary'), btn('همه کاربران', E.allUsers, 'primary')],
     [btn('مدیریت کانفیگ', E.manageConf, 'primary'), btn('گزارش کامل', E.fullReport, 'primary')],
-    [btn('مدیریت دکمه‌ها', E.manageBtn, 'primary'), btn('حالت تعمیر', E.maintenance, 'danger')],
+    [btn('مدیریت دکمه‌ها', E.manageBtn, 'primary'), btn('حالت تعمیر', E.maintenance, 'primary')],
     [btn('🔙 بازگشت به منو', null, null)]
   ];
 }
 
-// Force join inline keyboard
 function forceJoinKeyboard(channels) {
   const rows = channels.map(ch => ([{
     text: `${ch.channel_name}`,
     url: ch.channel_url,
-    icon_custom_emoji_id: E.channel1
+    icon_custom_emoji_id: E.channel1,
+    style: 'primary'
   }]));
   rows.push([{
-    text: 'تایید عضویت',
+    text: '✅ تایید عضویت',
     callback_data: 'check_membership',
     icon_custom_emoji_id: E.check,
-    style: 'success'
+    style: 'primary'
   }]);
   return rows;
 }
 
-// Back button
 function backBtn() {
   return [[{ text: '🔙 بازگشت', callback_data: 'back_to_menu' }]];
 }
