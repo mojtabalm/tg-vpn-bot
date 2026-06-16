@@ -4,6 +4,9 @@
   "private": true,
   "type": "commonjs",
   "main": "index.js",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "start": "node --experimental-sqlite index.js",
     "dev": "node --experimental-sqlite index.js"
