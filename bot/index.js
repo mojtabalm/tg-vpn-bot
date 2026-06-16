@@ -773,5 +773,3 @@ server.listen(PORT, async () => {
 // ─── Error handling ───────────────────────────────────────────────────────────
 process.on('uncaughtException',  (err) => console.error('[Uncaught]', err.message));
 process.on('unhandledRejection', (r)   => console.error('[Rejection]', r));
-
-console.log('🤖 ربات شروع به کار کرد...');
