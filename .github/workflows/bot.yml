@@ -1,0 +1,43 @@
+name: Telegram Bot 24/7
+
+on:
+  schedule:
+    - cron: '0 */5 * * *'
+  workflow_dispatch:
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 330
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Restore database
+        uses: actions/cache/restore@v4
+        with:
+          path: bot/data
+          key: bot-db-${{ github.run_number }}
+          restore-keys: |
+            bot-db-
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Install dependencies
+        working-directory: bot
+        run: npm install
+
+      - name: Run bot (5 hours)
+        working-directory: bot
+        env:
+          BOT_TOKEN: ${{ secrets.BOT_TOKEN }}
+        run: timeout 18000 node --experimental-sqlite index.js || true
+
+      - name: Save database
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: bot/data
+          key: bot-db-${{ github.run_number }}
