@@ -186,10 +186,15 @@ bot.on('callback_query', async (query) => {
     try { await api.deleteMessage(chatId, msgId); } catch {}
 
     const state = getState(userId);
-    const pendingReferrerId = state?.pendingReferrerId || null;
     clearState(userId);
 
-    if (!db.getUser(userId)) {
+    // اگه بات ری‌استارت شده باشه state گم میشه، از DB می‌خونیم
+    const existingUser = db.getUser(userId);
+    const pendingReferrerId = state?.pendingReferrerId
+      || existingUser?.referrer_id
+      || null;
+
+    if (!existingUser) {
       db.createUser(userId, query.from.username || null, query.from.first_name || 'کاربر', pendingReferrerId);
     }
 
