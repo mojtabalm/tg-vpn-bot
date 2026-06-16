@@ -139,8 +139,8 @@ function getReferralCount(telegramId) {
 
 function addReferral(referrerId, referredId) {
   try {
-    db.prepare('INSERT OR IGNORE INTO referrals (referrer_id, referred_id) VALUES (?, ?)').run(referrerId, referredId);
-    return true;
+    const result = db.prepare('INSERT OR IGNORE INTO referrals (referrer_id, referred_id) VALUES (?, ?)').run(referrerId, referredId);
+    return result.changes > 0;
   } catch { return false; }
 }
 
