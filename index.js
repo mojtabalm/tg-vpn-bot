@@ -723,6 +723,14 @@ bot.onText(/\/delchannel_(\d+)/, async (msg, m) => {
   await sendMsg(msg.chat.id, `✅ کانال #${m[1]} حذف شد.`);
 });
 
+// ─── Keep-alive HTTP server (for UptimeRobot pinging) ────────────────────────
+const http = require('http');
+const PORT = process.env.PORT || 3000;
+http.createServer((req, res) => {
+  res.writeHead(200, { 'Content-Type': 'text/plain' });
+  res.end('OK');
+}).listen(PORT, () => console.log(`🌐 Health server on port ${PORT}`));
+
 // ─── Error handling ───────────────────────────────────────────────────────────
 bot.on('polling_error', (err) => console.error('[Poll Error]', err.message));
 process.on('uncaughtException',  (err) => console.error('[Uncaught]', err.message));
