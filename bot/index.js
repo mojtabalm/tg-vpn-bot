@@ -9,7 +9,7 @@ const BOT_TOKEN = process.env.BOT_TOKEN;
 if (!BOT_TOKEN) { console.error('❌ BOT_TOKEN env var required'); process.exit(1); }
 const ADMIN_IDS = [6622580245];
 
-const bot = new TelegramBot(BOT_TOKEN, { polling: true });
+const bot = new TelegramBot(BOT_TOKEN);
 
 // ─── In-memory state ──────────────────────────────────────────────────────────
 const userState = new Map();
@@ -729,16 +729,48 @@ bot.onText(/\/delchannel_(\d+)/, async (msg, m) => {
   await sendMsg(msg.chat.id, `✅ کانال #${m[1]} حذف شد.`);
 });
 
-// ─── Keep-alive HTTP server (for UptimeRobot pinging) ────────────────────────
+// ─── Webhook HTTP Server ──────────────────────────────────────────────────────
 const http = require('http');
-const PORT = process.env.PORT || 3000;
-http.createServer((req, res) => {
-  res.writeHead(200, { 'Content-Type': 'text/plain' });
-  res.end('OK');
-}).listen(PORT, () => console.log(`🌐 Health server on port ${PORT}`));
+const PORT = parseInt(process.env.PORT) || 8080;
+const WEBHOOK_DOMAIN = process.env.WEBHOOK_DOMAIN || 'lnterbot-production.up.railway.app';
+const WEBHOOK_PATH = '/update';
+
+const server = http.createServer((req, res) => {
+  if (req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'text/plain' });
+    res.end('OK - lnterBot running');
+    return;
+  }
+  if (req.method === 'POST' && req.url === WEBHOOK_PATH) {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const update = JSON.parse(body);
+        bot.processUpdate(update);
+      } catch (e) { console.error('[Webhook parse error]', e.message); }
+      res.writeHead(200);
+      res.end('OK');
+    });
+    return;
+  }
+  res.writeHead(404);
+  res.end('Not found');
+});
+
+server.listen(PORT, async () => {
+  console.log('🤖 ربات شروع به کار کرد...');
+  console.log(`🌐 Server on port ${PORT}`);
+  try {
+    await bot.deleteWebHook();
+    await bot.setWebHook(`https://${WEBHOOK_DOMAIN}${WEBHOOK_PATH}`);
+    console.log(`✅ Webhook: https://${WEBHOOK_DOMAIN}${WEBHOOK_PATH}`);
+  } catch (e) {
+    console.error('[Webhook setup error]', e.message);
+  }
+});
 
 // ─── Error handling ───────────────────────────────────────────────────────────
-bot.on('polling_error', (err) => console.error('[Poll Error]', err.message));
 process.on('uncaughtException',  (err) => console.error('[Uncaught]', err.message));
 process.on('unhandledRejection', (r)   => console.error('[Rejection]', r));
 
